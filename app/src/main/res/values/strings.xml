@@ -1,0 +1,25 @@
+<resources>
+    <string name="app_name">Eruda</string>
+    <string name="input_url">Enter Url</string>
+    <string name="mode">day</string>
+    <string name="favorites_title">Favorites</string>
+    <string name="history_title">History</string>
+    <string name="empty_list">Nothing here yet</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="section_appearance">APPEARANCE</string>
+    <string name="theme_system">System default</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="section_data">DATA</string>
+    <string name="clear_history">Clear history</string>
+    <string name="clear_favorites">Clear favorites</string>
+    <string name="confirm_clear_history">Delete all history?</string>
+    <string name="confirm_clear_favorites">Delete all favorites?</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="toast_cleared">Cleared</string>
+    <string name="toast_removed">Removed</string>
+    <string name="section_about">ABOUT</string>
+    <string name="version_label">Version</string>
+</resources>

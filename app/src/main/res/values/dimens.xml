@@ -1,0 +1,7 @@
+<resources>
+    <dimen name="top_bar_height">40dp</dimen>
+    <dimen name="top_bar_bg_gap">5dp</dimen>
+    <dimen name="fab_size">56dp</dimen>
+    <dimen name="dock_icon">24dp</dimen>
+    <dimen name="dock_row">52dp</dimen>
+</resources>

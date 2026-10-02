@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="background">#202124</color>
+    <color name="input_background">#3C4043</color>
+    <color name="input_color">#fff</color>
+
+    <color name="dock_background">#292A2D</color>
+    <color name="dock_icon">#E8EAED</color>
+    <color name="dock_handle">#5F6363</color>
+    <color name="fab_background">#438AFE</color>
+
+    <color name="text_secondary">#9AA0A6</color>
+    <color name="text_primary">#E8EAED</color>
+    <color name="divider">#3C4043</color>
+</resources>

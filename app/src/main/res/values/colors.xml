@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <color name="splash_background">#438afe</color>
+    <color name="background">#fff</color>
+    <color name="input_background">#f4f4f4</color>
+    <color name="input_color">#606060</color>
+
+    <color name="dock_background">#FFFFFF</color>
+    <color name="dock_icon">#5F6368</color>
+    <color name="dock_handle">#DADCE0</color>
+    <color name="fab_background">#438AFE</color>
+
+    <color name="text_secondary">#5F6368</color>
+    <color name="text_primary">#202124</color>
+    <color name="divider">#E8EAED</color>
+</resources>
