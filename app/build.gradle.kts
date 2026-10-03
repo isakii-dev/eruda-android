@@ -59,6 +59,7 @@ dependencies {
     implementation("androidx.webkit:webkit:1.6.1")
     implementation("com.squareup.okhttp3:okhttp:4.10.0")
     implementation("com.google.code.gson:gson:2.9.0")
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
 }
 
 // `archivesBaseName` não existe no DSL público do AGP 8 (só o Groovy via reflect),

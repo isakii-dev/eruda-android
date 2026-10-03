@@ -15,6 +15,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import io.liriliri.eruda.data.DataStore
+import io.liriliri.eruda.mcp.McpServerActivity
 import java.io.File
 
 class SettingsActivity : AppCompatActivity() {
@@ -76,6 +77,9 @@ class SettingsActivity : AppCompatActivity() {
             confirmClear(R.string.confirm_clear_cache, R.string.confirm_clear_cache_sub) {
                 clearAllCache()
             }
+        }
+        findViewById<View>(R.id.rowMcpServer).setOnClickListener {
+            startActivity(McpServerActivity.intent(this))
         }
     }
 

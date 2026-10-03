@@ -6,12 +6,19 @@ import android.animation.AnimatorListenerAdapter
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
 import android.view.GestureDetector
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -40,15 +47,23 @@ import androidx.webkit.WebViewFeature
 import io.liriliri.eruda.data.Bookmark
 import io.liriliri.eruda.data.DataStore
 import io.liriliri.eruda.data.HistoryItem
+import io.liriliri.eruda.mcp.McpBridge
+import io.liriliri.eruda.mcp.McpServerManager
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
+import org.json.JSONObject
+import org.json.JSONTokener
+import java.io.ByteArrayOutputStream
 import java.io.UnsupportedEncodingException
 import java.net.URLEncoder
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 // https://github.com/mengkunsoft/MkBrowser
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), McpBridge {
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     private lateinit var textUrl: AutoCompleteTextView
@@ -250,7 +265,7 @@ class MainActivity : AppCompatActivity() {
 
         var dialog: AlertDialog? = null
         val clearAction = View.OnClickListener {
-            clearSiteData()
+            clearSiteDataNow()
             dialog?.dismiss()
         }
         v.findViewById<View>(R.id.infoDataRow).setOnClickListener(clearAction)
@@ -263,7 +278,7 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun clearSiteData() {
+    private fun clearSiteDataNow() {
         val cookieManager = CookieManager.getInstance()
         cookieManager.removeAllCookies(null)
         cookieManager.flush()
@@ -329,6 +344,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         restoreFabPosition()
+
+        // Rede de segurança: se qualquer layout deixar o FAB fora da
+        // área visível (rotação, teclado, multi-janela), traz de volta.
+        // Não mexe em nada quando já está dentro (não briga com o arrasto).
+        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            clampFabIfOutside()
+        }
     }
 
     private fun toggleDock() {
@@ -407,6 +429,22 @@ class MainActivity : AppCompatActivity() {
         anim.start()
     }
 
+    /** Traz o FAB para dentro da área visível (sem animação). */
+    private fun clampFabIfOutside() {
+        if (root.width <= 0 || root.height <= fab.height || fab.width <= 0) return
+        if (fab.visibility != View.VISIBLE) return
+        val maxX = (root.width - fab.width).toFloat()
+        val maxY = (root.height - fab.height).toFloat()
+        val nx = fab.x.coerceIn(0f, maxX)
+        val ny = fab.y.coerceIn(0f, maxY)
+        if (nx != fab.x || ny != fab.y) {
+            fab.animate().cancel()
+            fab.x = nx
+            fab.y = ny
+            saveFabPosition()
+        }
+    }
+
     /** Encosta o FAB na borda mais próxima (esquerda/direita), mantendo o Y. */
     private fun snapFab() {
         val maxX = (root.width - fab.width).toFloat().coerceAtLeast(0f)
@@ -415,6 +453,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun saveFabPosition() {
+        if (root.width <= 0 || root.height <= fab.height) return // layout degenerado: não corrompe
         val maxY = (root.height - fab.height).toFloat().coerceAtLeast(1f)
         getSharedPreferences(PREFS_FAB, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_FAB_LEFT, fab.x + fab.width / 2f < root.width / 2f)
@@ -423,18 +462,44 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun restoreFabPosition() {
-        root.doOnLayout {
-            if (root.width == 0 || root.height == 0 || fab.width == 0) return@doOnLayout
-            val prefs = getSharedPreferences(PREFS_FAB, Context.MODE_PRIVATE)
-            val onLeft = prefs.getBoolean(KEY_FAB_LEFT, true)
-            val yFrac = prefs.getFloat(KEY_FAB_Y, 0.45f)
-            val maxX = (root.width - fab.width).toFloat()
-            val maxY = (root.height - fab.height).toFloat()
-            fab.x = if (onLeft) 0f else maxX
-            fab.y = maxY * yFrac
-            fab.visibility = View.VISIBLE
-            animateFab(active = false, duration = 0L)
+        placeFabByFraction()
+    }
+
+    /**
+     * Rotação não recria mais a activity (configChanges): o FAB manteria
+     * as coordenadas absolutas do retrato e sumiria no deitado.
+     * Reposiciona pela mesma fração salva (lado + Y relativo).
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (dockOpen) closeDock()
+        fabLifted = false
+        placeFabByFraction()
+    }
+
+    /**
+     * Posiciona o FAB pela fração salva (lado + Y relativo). O primeiro
+     * layout pode vir com dimensões degeneradas (ex.: altura == altura do
+     * FAB durante a animação de rotação) — nesse caso tenta de novo no
+     * próximo frame em vez de aceitar 0,0.
+     */
+    private fun placeFabByFraction(attempt: Int = 0) {
+        if (attempt > 30) return
+        if (root.width <= 0 || root.height <= fab.height || fab.width <= 0) {
+            root.post { placeFabByFraction(attempt + 1) }
+            return
         }
+        fab.animate().cancel()
+        val prefs = getSharedPreferences(PREFS_FAB, Context.MODE_PRIVATE)
+        val onLeft = prefs.getBoolean(KEY_FAB_LEFT, true)
+        val yFrac = prefs.getFloat(KEY_FAB_Y, 0.45f)
+        val maxX = (root.width - fab.width).toFloat().coerceAtLeast(0f)
+        val maxY = (root.height - fab.height).toFloat().coerceAtLeast(0f)
+        fab.x = if (onLeft) 0f else maxX
+        fab.y = (maxY * yFrac).coerceIn(0f, maxY)
+        fab.visibility = View.VISIBLE
+        animateFab(active = false, duration = 0L)
+        saveFabPosition()
     }
 
     private fun handleBackButton() {
@@ -478,6 +543,13 @@ class MainActivity : AppCompatActivity() {
                 view: WebView,
                 request: WebResourceRequest
             ): WebResourceResponse? {
+                addMcpEntry(
+                    JSONObject()
+                        .put("method", request.method)
+                        .put("url", request.url.toString())
+                        .toString(),
+                    mcpNetwork
+                )
                 // O WebView bloqueia file:///android_asset como subrecurso de páginas
                 // https, então servimos o eruda.js por uma URL falsa interceptada.
                 if (request.url.toString() == ERUDA_ASSET_URL) {
@@ -612,6 +684,19 @@ class MainActivity : AppCompatActivity() {
                 progressBar.progress = newProgress
             }
 
+            override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                addMcpEntry(
+                    JSONObject()
+                        .put("level", consoleMessage.messageLevel().name)
+                        .put("message", consoleMessage.message())
+                        .put("source", consoleMessage.sourceId())
+                        .put("line", consoleMessage.lineNumber())
+                        .toString(),
+                    mcpConsole
+                )
+                return super.onConsoleMessage(consoleMessage)
+            }
+
             override fun onReceivedIcon(view: WebView, icon: Bitmap) {
                 super.onReceivedIcon(view, icon)
 
@@ -642,6 +727,9 @@ class MainActivity : AppCompatActivity() {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        settings.builtInZoomControls = true
+        settings.setDisplayZoomControls(false)
+        settings.setSupportZoom(true)
 
         if (resources.getString(R.string.mode) == "night") {
             // https://stackoverflow.com/questions/57449900/letting-webview-on-android-work-with-prefers-color-scheme-dark
@@ -689,7 +777,13 @@ class MainActivity : AppCompatActivity() {
             webView.clearCache(true)
             webView.reload()
         }
+
+        McpServerManager.registerBridge(this)
+        McpServerManager.ensureServiceRunning(this)
     }
+
+    // Sem override de onDestroy para o MCP: o McpService (foreground)
+    // é o dono do servidor e sobrevive à destruição da activity.
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.action == MotionEvent.ACTION_DOWN) {
@@ -749,6 +843,324 @@ class MainActivity : AppCompatActivity() {
             textUrl.setText(text)
         }
     }
+
+    // ---------------------------------------------------------------------
+    // MCP bridge (io.liriliri.eruda.mcp.McpBridge)
+    // ---------------------------------------------------------------------
+
+    private val mcpConsole = ArrayDeque<String>()
+    private val mcpNetwork = ArrayDeque<String>()
+
+    @Synchronized
+    private fun addMcpEntry(entry: String, deck: ArrayDeque<String>) {
+        deck.addLast(entry)
+        if (deck.size > 100) deck.removeFirst()
+    }
+
+    @Synchronized
+    private fun dumpMcpDeck(deck: ArrayDeque<String>, limit: Int): String =
+        JSONArray(deck.takeLast(limit.coerceAtLeast(1))).toString()
+
+    /** Roda o bloco na UI thread a partir de uma thread do servidor MCP. */
+    private fun <T> uiResult(block: () -> T): T {
+        if (Looper.myLooper() == Looper.getMainLooper()) return block()
+        val latch = CountDownLatch(1)
+        val box = arrayOfNulls<Any?>(1)
+        runOnUiThread {
+            try {
+                box[0] = block()
+            } catch (e: Exception) {
+                box[0] = e
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await(15, TimeUnit.SECONDS)
+        val value = box[0]
+        if (value is Exception) throw value
+        @Suppress("UNCHECKED_CAST")
+        return value as T
+    }
+
+    private fun uiRun(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+            return
+        }
+        val latch = CountDownLatch(1)
+        runOnUiThread {
+            try {
+                block()
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await(15, TimeUnit.SECONDS)
+    }
+
+    override fun screenshotBase64(): String = uiResult {
+        val width = webView.width
+        val height = webView.height
+        if (width <= 0 || height <= 0) return@uiResult ""
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        webView.draw(Canvas(bitmap))
+        val stream = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.PNG, 80, stream)
+        bitmap.recycle()
+        Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+    }
+
+    override fun tap(x: Float, y: Float) = uiRun {
+        val t = SystemClock.uptimeMillis()
+        webView.dispatchTouchEvent(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0))
+        webView.dispatchTouchEvent(MotionEvent.obtain(t, t + 60, MotionEvent.ACTION_UP, x, y, 0))
+    }
+
+    override fun press(x: Float, y: Float, durationMs: Long) {
+        val latch = CountDownLatch(1)
+        val t = SystemClock.uptimeMillis()
+        val handler = Handler(Looper.getMainLooper())
+        uiRun {
+            webView.dispatchTouchEvent(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0))
+            handler.postDelayed({
+                webView.dispatchTouchEvent(
+                    MotionEvent.obtain(t, t + durationMs, MotionEvent.ACTION_UP, x, y, 0)
+                )
+                latch.countDown()
+            }, durationMs)
+        }
+        latch.await(durationMs + 2000, TimeUnit.MILLISECONDS)
+    }
+
+    override fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long) {
+        val steps = 24
+        val latch = CountDownLatch(1)
+        val t = SystemClock.uptimeMillis()
+        val handler = Handler(Looper.getMainLooper())
+        uiRun {
+            webView.dispatchTouchEvent(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x1, y1, 0))
+            var step = 1
+            val move = object : Runnable {
+                override fun run() {
+                    if (step < steps) {
+                        val f = step.toFloat() / steps
+                        webView.dispatchTouchEvent(
+                            MotionEvent.obtain(
+                                t, t + (durationMs * f).toLong(), MotionEvent.ACTION_MOVE,
+                                x1 + (x2 - x1) * f, y1 + (y2 - y1) * f, 0
+                            )
+                        )
+                        step++
+                        handler.postDelayed(this, durationMs / steps)
+                    } else {
+                        webView.dispatchTouchEvent(
+                            MotionEvent.obtain(t, t + durationMs, MotionEvent.ACTION_UP, x2, y2, 0)
+                        )
+                        latch.countDown()
+                    }
+                }
+            }
+            handler.postDelayed(move, durationMs / steps)
+        }
+        latch.await(durationMs + 3000, TimeUnit.MILLISECONDS)
+    }
+
+    override fun scroll(direction: String, amount: Float) {
+        val width = uiResult { webView.width }
+        val height = uiResult { webView.height }
+        if (width <= 0 || height <= 0) return
+        val dx = width * 0.6f * amount
+        val dy = height * 0.6f * amount
+        val halfW = width / 2f
+        val halfH = height / 2f
+        when (direction.lowercase()) {
+            "up" -> swipe(halfW, height * 0.25f, halfW, height * 0.25f + dy, 300)
+            "down" -> swipe(halfW, height * 0.75f, halfW, height * 0.75f - dy, 300)
+            "left" -> swipe(width * 0.75f, halfH, width * 0.75f - dx, halfH, 300)
+            "right" -> swipe(width * 0.25f, halfH, width * 0.25f + dx, halfH, 300)
+            else -> throw IllegalArgumentException("direction must be up|down|left|right")
+        }
+    }
+
+    override fun pinch(
+        centerX: Float, centerY: Float,
+        startDistance: Float, endDistance: Float,
+        durationMs: Long
+    ) {
+        val steps = 24
+        val latch = CountDownLatch(1)
+        val t = SystemClock.uptimeMillis()
+        val handler = Handler(Looper.getMainLooper())
+
+        val p0 = MotionEvent.PointerProperties().apply {
+            id = 0
+            toolType = MotionEvent.TOOL_TYPE_FINGER
+        }
+        val p1 = MotionEvent.PointerProperties().apply {
+            id = 1
+            toolType = MotionEvent.TOOL_TYPE_FINGER
+        }
+
+        fun twoPointer(eventTime: Long, action: Int, distance: Float): MotionEvent {
+            val c0 = MotionEvent.PointerCoords().apply {
+                x = centerX
+                y = centerY - distance / 2f
+                pressure = 1f
+                size = 1f
+            }
+            val c1 = MotionEvent.PointerCoords().apply {
+                x = centerX
+                y = centerY + distance / 2f
+                pressure = 1f
+                size = 1f
+            }
+            return MotionEvent.obtain(
+                t, eventTime, action, 2,
+                arrayOf(p0, p1), arrayOf(c0, c1),
+                0, 0, 1f, 1f, 0, 0,
+                InputDevice.SOURCE_TOUCHSCREEN, 0
+            )
+        }
+
+        uiRun {
+            val c0 = MotionEvent.PointerCoords().apply {
+                x = centerX
+                y = centerY - startDistance / 2f
+                pressure = 1f
+                size = 1f
+            }
+            webView.dispatchTouchEvent(
+                MotionEvent.obtain(
+                    t, t, MotionEvent.ACTION_DOWN, 1,
+                    arrayOf(p0), arrayOf(c0),
+                    0, 0, 1f, 1f, 0, 0,
+                    InputDevice.SOURCE_TOUCHSCREEN, 0
+                )
+            )
+            webView.dispatchTouchEvent(
+                twoPointer(
+                    t,
+                    (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT) or MotionEvent.ACTION_POINTER_DOWN,
+                    startDistance
+                )
+            )
+            var step = 1
+            val move = object : Runnable {
+                override fun run() {
+                    if (step < steps) {
+                        val f = step.toFloat() / steps
+                        val distance = startDistance + (endDistance - startDistance) * f
+                        webView.dispatchTouchEvent(
+                            twoPointer(t + (durationMs * f).toLong(), MotionEvent.ACTION_MOVE, distance)
+                        )
+                        step++
+                        handler.postDelayed(this, durationMs / steps)
+                    } else {
+                        webView.dispatchTouchEvent(
+                            twoPointer(
+                                t + durationMs,
+                                (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT) or MotionEvent.ACTION_POINTER_UP,
+                                endDistance
+                            )
+                        )
+                        val cEnd = MotionEvent.PointerCoords().apply {
+                            x = centerX
+                            y = centerY - endDistance / 2f
+                            pressure = 1f
+                            size = 1f
+                        }
+                        webView.dispatchTouchEvent(
+                            MotionEvent.obtain(
+                                t, t + durationMs + 10, MotionEvent.ACTION_UP, 1,
+                                arrayOf(p0), arrayOf(cEnd),
+                                0, 0, 1f, 1f, 0, 0,
+                                InputDevice.SOURCE_TOUCHSCREEN, 0
+                            )
+                        )
+                        latch.countDown()
+                    }
+                }
+            }
+            handler.postDelayed(move, durationMs / steps)
+        }
+        latch.await(durationMs + 3000, TimeUnit.MILLISECONDS)
+    }
+
+    override fun typeText(text: String): String = evalJs(
+        "(function(){var el=document.activeElement;" +
+            "if(!el)return'no focused element';" +
+            "var v=${JSONObject.quote(text)};" +
+            "if(el.isContentEditable){el.textContent=v;}" +
+            "else if(el.value!==undefined){el.value=v;}" +
+            "else return'no focused input';" +
+            "el.dispatchEvent(new Event('input',{bubbles:true}));" +
+            "el.dispatchEvent(new Event('change',{bubbles:true}));" +
+            "return'ok';})()"
+    )
+
+    override fun clickSelector(selector: String): String = evalJs(
+        "(function(){var el=document.querySelector(${JSONObject.quote(selector)});" +
+            "if(!el)return'not found';" +
+            "el.scrollIntoView({block:'center'});" +
+            "el.click();" +
+            "return'clicked';})()"
+    )
+
+    override fun domQuery(selector: String, limit: Int): String {
+        val raw = evalJs(
+            "(function(){var els=document.querySelectorAll(${JSONObject.quote(selector)});" +
+                "var out=[];var n=Math.min(els.length,$limit);" +
+                "for(var i=0;i<n;i++){var el=els[i];var r=el.getBoundingClientRect();" +
+                "out.push({tag:el.tagName,text:(el.textContent||'').trim().slice(0,120)," +
+                "rect:{x:r.x,y:r.y,width:r.width,height:r.height}});}" +
+                "return JSON.stringify(out);})()"
+        )
+        return unwrapJsString(raw)
+    }
+
+    override fun evalJs(script: String): String {
+        val latch = CountDownLatch(1)
+        val box = arrayOfNulls<String>(1)
+        runOnUiThread {
+            webView.evaluateJavascript(script) { value ->
+                box[0] = value
+                latch.countDown()
+            }
+        }
+        latch.await(10, TimeUnit.SECONDS)
+        return box[0] ?: "null"
+    }
+
+    private fun unwrapJsString(raw: String?): String {
+        if (raw.isNullOrEmpty()) return "[]"
+        return try {
+            val value = JSONTokener(raw).nextValue()
+            if (value is String) value else raw
+        } catch (e: Exception) {
+            raw
+        }
+    }
+
+    override fun navigate(url: String) = uiRun { webView.loadUrl(url) }
+
+    override fun back() = uiRun { if (webView.canGoBack()) webView.goBack() }
+
+    override fun forward() = uiRun { if (webView.canGoForward()) webView.goForward() }
+
+    override fun pageInfo(): String = uiResult {
+        val url = webView.url ?: ""
+        JSONObject()
+            .put("url", if (url.isEmpty()) JSONObject.NULL else url)
+            .put("title", webView.title ?: JSONObject.NULL)
+            .put("secure", url.startsWith("https://", ignoreCase = true))
+            .toString()
+    }
+
+    override fun consoleLogs(limit: Int): String = dumpMcpDeck(mcpConsole, limit)
+
+    override fun networkRequests(limit: Int): String = dumpMcpDeck(mcpNetwork, limit)
+
+    override fun clearSiteData() = uiRun { clearSiteDataNow() }
 
     companion object {
         const val EXTRA_URL = "url"
