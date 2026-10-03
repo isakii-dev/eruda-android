@@ -4,6 +4,10 @@ A full-screen WebView browser that loads [eruda](https://github.com/liriliri/eru
 
 Forked from [liriliri/eruda-android](https://github.com/liriliri/eruda-android). Current version: **2.0.0**.
 
+| Browser | MCP Server |
+|---|---|
+| ![Browser](docs/screenshots/browser.png) | ![MCP Server](docs/screenshots/mcp-server.png) |
+
 ## Browser features
 
 - Eruda console auto-injected on every page (offline, served from assets)
