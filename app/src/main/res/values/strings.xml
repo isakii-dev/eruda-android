@@ -31,6 +31,7 @@
     <string name="row_mcp_server">MCP Server</string>
     <string name="mcp_title">MCP Server</string>
     <string name="mcp_section_server">SERVER</string>
+    <string name="mcp_section_keepalive">KEEP ALIVE</string>
     <string name="mcp_section_log">CALL LOG</string>
     <string name="mcp_enable">Enable server</string>
     <string name="mcp_status">Status</string>
@@ -76,6 +77,7 @@
     <string name="mcp_approve_failed">Could not reach the client callback</string>
     <string name="mcp_oauth_expired">Request expired, start over in your MCP client</string>
     <string name="mcp_overlay_button">Allow popup over other apps</string>
+    <string name="mcp_autoboot">Start on device boot</string>
 
     <string name="site_info">Site info</string>
     <string name="site_info_secure">Connection is secure</string>

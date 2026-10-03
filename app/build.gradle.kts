@@ -6,7 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val appVersion = "1.2.0"
+val appVersion = "2.0.0"
 
 android {
     namespace = "io.liriliri.eruda"
@@ -16,7 +16,7 @@ android {
         applicationId = "io.liriliri.eruda"
         minSdk = 21
         targetSdk = 34
-        versionCode = 2
+        versionCode = 4
         versionName = appVersion
     }
 

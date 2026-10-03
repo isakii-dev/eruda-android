@@ -33,7 +33,7 @@ class McpServer(
         )
         private const val SERVER_VERSION = "2025-06-18"
         private const val SERVER_NAME = "eruda"
-        private const val APP_VERSION = "1.2.0"
+        private const val APP_VERSION = "2.0.0"
     }
 
     override fun serve(session: IHTTPSession): Response {

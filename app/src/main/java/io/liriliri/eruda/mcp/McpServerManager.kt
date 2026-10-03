@@ -18,6 +18,7 @@ object McpServerManager {
     private const val KEY_ENABLED = "enabled"
     private const val KEY_PORT = "port"
     private const val KEY_TOKEN = "token"
+    private const val KEY_AUTO_BOOT = "auto_boot"
 
     /** Porta padrão longe das faixas comuns de dev (8080 vive ocupada). */
     const val DEFAULT_PORT = 18789
@@ -44,6 +45,15 @@ object McpServerManager {
 
     fun isEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_ENABLED, false)
+
+    /** Auto-start no boot (opt-in explícito, default false). */
+    fun isAutoBoot(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_AUTO_BOOT, false)
+
+    fun setAutoBoot(context: Context, autoBoot: Boolean) {
+        prefs(context).edit().putBoolean(KEY_AUTO_BOOT, autoBoot).apply()
+        log(if (autoBoot) "Auto-start on boot enabled" else "Auto-start on boot disabled")
+    }
 
     /**
      * Dual-accept (como o repo de referência): vale o bearer estático

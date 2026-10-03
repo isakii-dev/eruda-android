@@ -66,6 +66,15 @@ class McpServerActivity : AppCompatActivity() {
             refreshStatus(statusValue)
         }
 
+        val autoBoot = findViewById<Switch>(R.id.switchAutoBoot)
+        autoBoot.isChecked = McpServerManager.isAutoBoot(this)
+        autoBoot.setOnCheckedChangeListener { _, on ->
+            McpServerManager.setAutoBoot(this, on)
+            if (on && McpServerManager.isEnabled(this) && !McpServerManager.isRunning()) {
+                McpServerManager.ensureServiceRunning(this)
+            }
+        }
+
         findViewById<LinearLayout>(R.id.rowUrl).setOnClickListener {
             copy(McpServerManager.url(this))
         }
