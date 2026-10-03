@@ -11,7 +11,6 @@ import android.widget.ImageView
 import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import io.liriliri.eruda.data.DataStore
 
@@ -81,24 +80,18 @@ class BookmarksActivity : AppCompatActivity() {
     }
 
     private fun confirmClear() {
-        val message = if (mode == MODE_HISTORY) {
-            R.string.confirm_clear_history
-        } else {
-            R.string.confirm_clear_favorites
-        }
-        AlertDialog.Builder(this)
-            .setMessage(message)
-            .setPositiveButton(R.string.action_clear) { _, _ ->
-                if (mode == MODE_HISTORY) {
-                    dataStore.clearHistory()
-                } else {
-                    dataStore.clearBookmarks()
-                }
-                Toast.makeText(this, R.string.toast_cleared, Toast.LENGTH_SHORT).show()
-                bindList()
+        val history = mode == MODE_HISTORY
+        val titleRes = if (history) R.string.confirm_clear_history else R.string.confirm_clear_favorites
+        val messageRes = if (history) R.string.confirm_clear_history_sub else R.string.confirm_clear_favorites_sub
+        showConfirmDialog(this, titleRes, messageRes) {
+            if (history) {
+                dataStore.clearHistory()
+            } else {
+                dataStore.clearBookmarks()
             }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
+            Toast.makeText(this, R.string.toast_cleared, Toast.LENGTH_SHORT).show()
+            bindList()
+        }
     }
 
     private inner class EntryAdapter : BaseAdapter() {

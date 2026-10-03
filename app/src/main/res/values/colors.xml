@@ -21,4 +21,9 @@
     <color name="text_secondary">#5F6368</color>
     <color name="text_primary">#202124</color>
     <color name="divider">#E8EAED</color>
+
+    <color name="secure_green">#4CAF50</color>
+    <color name="warn_orange">#FF9800</color>
+    <color name="destructive_red">#EA4335</color>
+    <color name="dialog_bg">#FFFFFF</color>
 </resources>

@@ -26,9 +26,13 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.doOnLayout
 import androidx.webkit.WebSettingsCompat
@@ -145,6 +149,11 @@ class MainActivity : AppCompatActivity() {
             startActivity(SettingsActivity.intent(this))
         }
 
+        findViewById<View>(R.id.btnSiteInfo).setOnClickListener {
+            textUrl.clearFocus()
+            showSiteInfo()
+        }
+
         btnRefresh.setOnClickListener {
             if (textUrl.hasFocus()) {
                 submitUrl()
@@ -218,6 +227,50 @@ class MainActivity : AppCompatActivity() {
         }
         webView.loadUrl(input)
         textUrl.clearFocus()
+    }
+
+    private fun showSiteInfo() {
+        val v = layoutInflater.inflate(R.layout.dialog_site_info, null)
+        val url = webView.url
+        val secure = url != null && url.startsWith("https://", ignoreCase = true)
+
+        val host = try {
+            Uri.parse(url ?: "").host ?: url ?: ""
+        } catch (e: Exception) {
+            url ?: ""
+        }
+        v.findViewById<TextView>(R.id.infoHost).text = host
+
+        v.findViewById<ImageView>(R.id.infoSecIcon).apply {
+            setImageResource(if (secure) R.drawable.ic_lock else R.drawable.ic_alert_triangle)
+            setColorFilter(ContextCompat.getColor(context, if (secure) R.color.secure_green else R.color.warn_orange))
+        }
+        v.findViewById<TextView>(R.id.infoSecTitle).setText(if (secure) R.string.site_info_secure else R.string.site_info_insecure)
+        v.findViewById<TextView>(R.id.infoSecSub).setText(if (secure) R.string.site_info_secure_sub else R.string.site_info_insecure_sub)
+
+        var dialog: AlertDialog? = null
+        val clearAction = View.OnClickListener {
+            clearSiteData()
+            dialog?.dismiss()
+        }
+        v.findViewById<View>(R.id.infoDataRow).setOnClickListener(clearAction)
+        v.findViewById<View>(R.id.infoClear).setOnClickListener(clearAction)
+
+        dialog = AlertDialog.Builder(this, R.style.AppDialog)
+            .setView(v)
+            .setPositiveButton(android.R.string.ok, null)
+            .create()
+        dialog.show()
+    }
+
+    private fun clearSiteData() {
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.removeAllCookies(null)
+        cookieManager.flush()
+        WebStorage.getInstance().deleteAllData()
+        webView.clearCache(true)
+        webView.reload()
+        Toast.makeText(this, R.string.toast_site_data_cleared, Toast.LENGTH_SHORT).show()
     }
 
     // ---------------------------------------------------------------------
@@ -629,6 +682,13 @@ class MainActivity : AppCompatActivity() {
 
         suggestionAdapter.setData(dataStore.getRecentHistory(20))
         webView.url?.let { updateBookmarkIcon(it) }
+
+        val settings = getSharedPreferences(SettingsActivity.PREFS_SETTINGS, MODE_PRIVATE)
+        if (settings.getBoolean(SettingsActivity.KEY_PENDING_RELOAD, false)) {
+            settings.edit().putBoolean(SettingsActivity.KEY_PENDING_RELOAD, false).apply()
+            webView.clearCache(true)
+            webView.reload()
+        }
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {

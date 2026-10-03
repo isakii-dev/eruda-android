@@ -76,6 +76,17 @@
                 android:textColor="@color/input_color"
                 android:textColorHint="#9f9f9f"
                 android:textSize="15sp" />
+
+            <ImageButton
+                android:id="@+id/btnSiteInfo"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/site_info"
+                android:padding="7dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_info"
+                android:tint="@color/dock_icon" />
         </LinearLayout>
 
         <LinearLayout

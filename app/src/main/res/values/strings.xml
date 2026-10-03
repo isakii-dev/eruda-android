@@ -16,10 +16,24 @@
     <string name="clear_favorites">Clear favorites</string>
     <string name="confirm_clear_history">Delete all history?</string>
     <string name="confirm_clear_favorites">Delete all favorites?</string>
+    <string name="confirm_clear_history_sub">All visited pages will be removed. This cannot be undone.</string>
+    <string name="confirm_clear_favorites_sub">All saved pages will be removed. This cannot be undone.</string>
+    <string name="clear_cache">Clear all cache</string>
+    <string name="confirm_clear_cache">Clear all cache?</string>
+    <string name="confirm_clear_cache_sub">Web cache, cookies, stored data and app cache files will be deleted.</string>
     <string name="action_clear">Clear</string>
     <string name="action_cancel">Cancel</string>
     <string name="toast_cleared">Cleared</string>
     <string name="toast_removed">Removed</string>
     <string name="section_about">ABOUT</string>
     <string name="version_label">Version</string>
+
+    <string name="site_info">Site info</string>
+    <string name="site_info_secure">Connection is secure</string>
+    <string name="site_info_secure_sub">Protected by HTTPS</string>
+    <string name="site_info_insecure">Connection is not secure</string>
+    <string name="site_info_insecure_sub">Data you type may be visible to others</string>
+    <string name="site_data">Cookies and site data</string>
+    <string name="site_data_sub">Clear cache, cookies and storage</string>
+    <string name="toast_site_data_cleared">Site data cleared</string>
 </resources>

@@ -12,4 +12,5 @@
     <color name="text_secondary">#9AA0A6</color>
     <color name="text_primary">#E8EAED</color>
     <color name="divider">#3C4043</color>
+    <color name="dialog_bg">#2B2C2E</color>
 </resources>
