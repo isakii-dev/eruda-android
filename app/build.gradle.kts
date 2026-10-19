@@ -6,7 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val appVersion = "2.0.0"
+val appVersion = "2.0.1"
 
 android {
     namespace = "io.liriliri.eruda"
@@ -16,7 +16,7 @@ android {
         applicationId = "io.liriliri.eruda"
         minSdk = 21
         targetSdk = 34
-        versionCode = 4
+        versionCode = 5
         versionName = appVersion
     }
 
@@ -37,6 +37,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 
     packaging {

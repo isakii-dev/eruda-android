@@ -2,7 +2,7 @@
 
 A full-screen WebView browser that loads [eruda](https://github.com/liriliri/eruda) automatically on every page — now with an **on-device MCP server** so AI agents can drive the browser for mobile web testing.
 
-Forked from [liriliri/eruda-android](https://github.com/liriliri/eruda-android). Current version: **2.0.0**.
+Forked from [liriliri/eruda-android](https://github.com/liriliri/eruda-android). Current version: **2.0.1**.
 
 | Browser | Browser + dock |
 |---|---|
@@ -124,7 +124,7 @@ ERUDA_MCP_TOKEN=<static token> python3 tools/mcp_tools_test.py
 
 ```bash
 sh ./gradlew :app:assembleDebug --console=plain
-adb install -r app/build/outputs/apk/debug/eruda-v2.0.0-debug.apk
+adb install -r app/build/outputs/apk/debug/eruda-v2.0.1-debug.apk
 ```
 
 Requires Android SDK (compile/target 34, min 21), JDK 17+. See [CHANGELOG.md](CHANGELOG.md) for version history.

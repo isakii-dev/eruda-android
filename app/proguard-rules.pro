@@ -19,3 +19,17 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# OkHttp optional TLS providers that are not bundled with the app.
+-dontwarn org.conscrypt.**
+-dontwarn org.openjsse.**
+-dontwarn org.bouncycastle.**
+
+# Gson: TypeToken reads the generic signature of anonymous subclasses.
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class com.google.gson.reflect.TypeToken
+-keep class * extends com.google.gson.reflect.TypeToken
+
+# Gson serializes model fields by name: keep them for prefs compatibility.
+-keep class io.liriliri.eruda.data.** { *; }

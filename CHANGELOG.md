@@ -1,4 +1,4 @@
-## Unreleased
+## 2.0.1 (19 Oct 2026)
 
 * feat: one approval popup per pairing request — in-app dialog when the app is in front, system overlay when it is behind, notification with Approve/Deny as fallback (no more overlay + heads-up at the same time)
 * feat: approving on the phone now delivers the code to the client directly (GET on the redirect URI); unreachable callbacks keep the request pending with a clear message
@@ -9,8 +9,11 @@
 * feat: `eruda_click_selector` focuses the element, making `eruda_press_key` land on the right field
 * feat: headless WebView in the service — tools keep working with the app closed, same page, dropped when the app reopens
 * fix: server no longer restarts when the activity is recreated; the bridge is resolved per call
+* fix: working minified release build — R8 rules for OkHttp optional TLS providers and Gson (`TypeToken` generic signatures + model field names)
+* fix: MCP `serverInfo` reports the real app version (`BuildConfig.VERSION_NAME`)
 * feat: `tools/mcp_oauth_test.py` and `tools/mcp_tools_test.py` for reproducible auth/tool tests
 * docs: README with the full 24-tool table and OAuth troubleshooting (*Waiting approval* before the request, unreachable callback, stale clients)
+* chore: version 2.0.1 (versionCode 5)
 
 ## 2.0.0 (03 Oct 2026)
 

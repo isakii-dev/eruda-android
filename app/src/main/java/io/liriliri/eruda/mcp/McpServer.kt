@@ -9,6 +9,7 @@ import fi.iki.elonen.NanoHTTPD.Response
 import fi.iki.elonen.NanoHTTPD.Response.Status
 import fi.iki.elonen.NanoHTTPD.Method
 import java.io.IOException
+import io.liriliri.eruda.BuildConfig
 
 /**
  * Servidor MCP (Streamable HTTP, JSON-RPC 2.0) expondo o WebView do app
@@ -35,7 +36,6 @@ class McpServer(
         )
         private const val SERVER_VERSION = "2025-06-18"
         private const val SERVER_NAME = "eruda"
-        private const val APP_VERSION = "2.0.0"
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -138,7 +138,7 @@ class McpServer(
         return JSONObject()
             .put("protocolVersion", version)
             .put("capabilities", JSONObject().put("tools", JSONObject().put("listChanged", false)))
-            .put("serverInfo", JSONObject().put("name", SERVER_NAME).put("version", APP_VERSION))
+            .put("serverInfo", JSONObject().put("name", SERVER_NAME).put("version", BuildConfig.VERSION_NAME))
             .put(
                 "instructions",
                 "Eruda browser MCP: control the in-app WebView to test mobile websites. " +
