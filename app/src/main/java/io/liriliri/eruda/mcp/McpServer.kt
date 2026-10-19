@@ -14,12 +14,14 @@ import java.io.IOException
  * Servidor MCP (Streamable HTTP, JSON-RPC 2.0) expondo o WebView do app
  * para ferramentas de IA (opencode, Claude Code, ...).
  *
- * Autenticação: bearer token estático (fase 1).
+ * Autenticação: bearer token estático OU access token OAuth (dual-accept).
+ * A ponte do navegador é resolvida A CADA CHAMADA: a UI quando viva,
+ * senão o WebView headless do serviço.
  */
 class McpServer(
     port: Int,
     private val token: String,
-    val bridge: McpBridge?
+    private val bridgeProvider: () -> McpBridge?
 ) : NanoHTTPD(port) {
 
     val listenPort: Int = port
@@ -159,14 +161,25 @@ class McpServer(
     }
 
     private fun runTool(name: String, args: JSONObject): String {
-        // Sem navegador (serviço reiniciado pelo sistema sem activity):
-        // ping/list funcionam, ferramentas de página falham com mensagem clara.
-        val bridge = bridge
-            ?: throw IllegalStateException("browser not open - open the Eruda app once")
+        // Sem navegador (serviço reiniciado pelo sistema sem activity e
+        // sem permissão de overlay): ping/list funcionam, ferramentas de
+        // página falham com mensagem clara.
+        val bridge = bridgeProvider()
+            ?: throw IllegalStateException(
+                "browser not open - open the Eruda app once (grant 'display over other apps' for closed-app use)"
+            )
         return when (name) {
         "eruda_screenshot" -> bridge.screenshotBase64()
         "eruda_tap" -> {
             bridge.tap(args.getDouble("x").toFloat(), args.getDouble("y").toFloat())
+            "ok"
+        }
+        "eruda_click" -> {
+            bridge.click(args.getDouble("x").toFloat(), args.getDouble("y").toFloat())
+            "ok"
+        }
+        "eruda_dblclick" -> {
+            bridge.doubleClick(args.getDouble("x").toFloat(), args.getDouble("y").toFloat())
             "ok"
         }
         "eruda_press" -> {
@@ -203,6 +216,18 @@ class McpServer(
         }
         "eruda_type" -> bridge.typeText(args.getString("text"))
         "eruda_click_selector" -> bridge.clickSelector(args.getString("selector"))
+        "eruda_hover" -> bridge.hover(args.getString("selector"))
+        "eruda_fill" -> bridge.fill(
+            args.getString("selector"), args.optString("text", "")
+        )
+        "eruda_press_key" -> bridge.pressKey(
+            args.getString("key"), args.optInt("times", 1)
+        )
+        "eruda_wait_for" -> bridge.waitFor(
+            args.getString("selector"),
+            args.optLong("timeoutMs", 5000),
+            args.optBoolean("visible", true)
+        )
         "eruda_dom_query" -> bridge.domQuery(args.getString("selector"), args.optInt("limit", 10))
         "eruda_eval_js" -> bridge.evalJs(args.getString("script"))
         "eruda_navigate" -> {
@@ -215,6 +240,10 @@ class McpServer(
         }
         "eruda_forward" -> {
             bridge.forward()
+            "ok"
+        }
+        "eruda_reload" -> {
+            bridge.reload()
             "ok"
         }
         "eruda_page_info" -> bridge.pageInfo()
@@ -242,6 +271,22 @@ class McpServer(
             tool(
                 "eruda_tap",
                 "Taps the screen at the given coordinates (screenshot pixels, top-left origin).",
+                schema(
+                    num("x", "X coordinate", required = true),
+                    num("y", "Y coordinate", required = true)
+                )
+            ),
+            tool(
+                "eruda_click",
+                "Clicks at the given coordinates (short touch down+up). Alias of eruda_tap.",
+                schema(
+                    num("x", "X coordinate", required = true),
+                    num("y", "Y coordinate", required = true)
+                )
+            ),
+            tool(
+                "eruda_dblclick",
+                "Double-clicks at the given coordinates (real double tap).",
                 schema(
                     num("x", "X coordinate", required = true),
                     num("y", "Y coordinate", required = true)
@@ -298,8 +343,44 @@ class McpServer(
                 schema(str("selector", "CSS selector", required = true))
             ),
             tool(
+                "eruda_hover",
+                "Moves the mouse over the first element matching a CSS selector, firing hover " +
+                    "events (use it to open menus/tooltips that only react to mouseover).",
+                schema(str("selector", "CSS selector", required = true))
+            ),
+            tool(
+                "eruda_fill",
+                "Sets the value of the first input/textarea/contenteditable matching a CSS " +
+                    "selector, firing input/change events (works with React/Vue controlled inputs).",
+                schema(
+                    str("selector", "CSS selector", required = true),
+                    str("text", "Text to put in the field", required = true)
+                )
+            ),
+            tool(
+                "eruda_press_key",
+                "Dispatches real keyboard events to the focused element. Keys: Enter, Tab, Escape, " +
+                    "Backspace, Delete, Space, ArrowUp/ArrowDown/ArrowLeft/ArrowRight, Home, End, " +
+                    "PageUp/PageDown, or a single character.",
+                schema(
+                    str("key", "Key name or single character", required = true),
+                    num("times", "How many times to press, default 1")
+                )
+            ),
+            tool(
+                "eruda_wait_for",
+                "Waits (polling every 250ms) until the CSS selector exists — or is also visible, " +
+                    "when visible=true — and returns the state. Fails on timeout.",
+                schema(
+                    str("selector", "CSS selector", required = true),
+                    num("timeoutMs", "Max wait in ms, default 5000"),
+                    bool("visible", "Wait until it is visible too, default true")
+                )
+            ),
+            tool(
                 "eruda_dom_query",
-                "Returns tag, visible text and bounding rect of elements matching a CSS selector.",
+                "Returns tag, visible text and bounding rect of elements matching a CSS selector. " +
+                    "Use rectDevice (device pixels) with eruda_tap/eruda_click; rect is in CSS pixels.",
                 schema(
                     str("selector", "CSS selector", required = true),
                     num("limit", "Max elements, default 10")
@@ -317,6 +398,7 @@ class McpServer(
             ),
             tool("eruda_back", "Goes back in browser history.", schema()),
             tool("eruda_forward", "Goes forward in browser history.", schema()),
+            tool("eruda_reload", "Reloads the current page.", schema()),
             tool(
                 "eruda_page_info",
                 "Returns the current URL, page title and whether the connection is HTTPS.",
@@ -376,6 +458,9 @@ class McpServer(
 
     private fun str(name: String, description: String, required: Boolean = false) =
         Prop(name, JSONObject().put("type", "string").put("description", description), required)
+
+    private fun bool(name: String, description: String, required: Boolean = false) =
+        Prop(name, JSONObject().put("type", "boolean").put("description", description), required)
 
     // ---------------------------------------------------------------------
     // Response helpers

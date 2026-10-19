@@ -84,7 +84,12 @@ class McpServerActivity : AppCompatActivity() {
         }
 
         findViewById<LinearLayout>(R.id.rowPairing).setOnClickListener {
-            Toast.makeText(this, R.string.mcp_pairing_toast, Toast.LENGTH_LONG).show()
+            val pending = McpOAuth.pendingSummaries().firstOrNull()
+            if (pending == null) {
+                Toast.makeText(this, R.string.mcp_pairing_toast, Toast.LENGTH_LONG).show()
+            } else {
+                startActivity(OAuthHandlerActivity.requestIntent(this, pending.id))
+            }
         }
 
         findViewById<ImageButton>(R.id.btnCopyToken).setOnClickListener {
@@ -152,7 +157,7 @@ class McpServerActivity : AppCompatActivity() {
                 "2. Point your MCP client to $url with header\n" +
                 "   Authorization: Bearer <token>\n" +
                 "   or run: opencode mcp auth eruda\n" +
-                "   (OAuth with on-device 2-digit approval)\n\n" +
+                "   (OAuth: one approval popup on the phone)\n\n" +
                 "The server keeps running in the background\n" +
                 "(see the notification) even with the app closed."
 

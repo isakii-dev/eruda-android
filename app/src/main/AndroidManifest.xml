@@ -47,7 +47,8 @@
         <activity
             android:name=".mcp.OAuthHandlerActivity"
             android:exported="true"
-            android:theme="@style/AppTheme">
+            android:excludeFromRecents="true"
+            android:theme="@style/AppTheme.DialogOverlay">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

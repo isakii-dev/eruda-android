@@ -1,35 +1,32 @@
 package io.liriliri.eruda.mcp
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
-import android.os.Build
-import androidx.core.app.NotificationCompat
+import android.util.Base64 as AndroidBase64
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Response
 import fi.iki.elonen.NanoHTTPD.Response.Status
-import io.liriliri.eruda.R
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.security.SecureRandom
-import android.util.Base64 as AndroidBase64
+import java.util.concurrent.TimeUnit
 
 /**
  * Servidor OAuth 2.1 próprio (self-contained), espelhando o fluxo do
  * android-remote-control-mcp: Dynamic Client Registration + página de
- * aprovação no navegador com código de 2 dígitos + notificação heads-up
- * no aparelho para conferir o código e aprovar.
+ * aprovação no navegador com código de 2 dígitos + popup nativo no
+ * aparelho para conferir o código e aprovar (McpPairing).
  *
  * Fluxo com o opencode:
  * 1. `opencode mcp auth eruda` (com o adb forward ativo)
  * 2. opencode descobre via 401/resource_metadata, registra o cliente (DCR)
  * 3. abre o navegador em /oauth/authorize (chega ao app via forward)
- * 4. a página mostra o código de 2 dígitos; o celular toca a notificação
- *    com o MESMO código → confere e toca Approve
+ * 4. o aparelho mostra UM popup (dialog/overlay/notificação) com o MESMO
+ *    código da página; Approve tenta entregar o code direto ao cliente —
+ *    se o cliente roda no próprio aparelho, o fluxo fecha sem navegador
  * 5. opencode troca o code (PKCE S256) por access_token e guarda
  */
 object McpOAuth {
@@ -43,8 +40,6 @@ object McpOAuth {
     private const val PENDING_TTL_MS = 10 * 60 * 1000L
     private const val ACCESS_TTL_MS = 30L * 24 * 60 * 60 * 1000
     private const val REFRESH_TTL_MS = 90L * 24 * 60 * 60 * 1000
-
-    private const val PAIR_CHANNEL = "mcp_pairing_v2"
 
     private var appContext: Context? = null
     private val random = SecureRandom()
@@ -234,26 +229,71 @@ object McpOAuth {
             val expired = pendings.values
                 .filter { it.expiresAt <= System.currentTimeMillis() }
             expired.forEach { pendings.remove(it.id) }
-            expired.map { it.clientId }.distinct().forEach { cancelPairingFor(it) }
-            expired.forEach { McpOverlay.hide(it.id) }
+            expired.forEach { McpPairing.dismiss(it.id) }
         }
-        McpServerManager.log("OAuth pairing request ${client.optString("name")}: code $code2")
-        notifyPairing(server, id, clientId, code2, client.optString("name", "MCP client"))
-        appContext?.let { McpOverlay.show(it, id, code2, client.optString("name", "MCP client"), server.listenPort) }
-        return html(Status.OK, approvalHtml(server, id, code2, client.optString("name", "MCP client")))
+        val clientName = client.optString("name", "MCP client")
+        McpServerManager.log("OAuth pairing request $clientName: code $code2")
+        appContext?.let { McpPairing.present(it, id, code2, clientId, clientName) }
+        return html(Status.OK, approvalHtml(server, id, code2, clientName))
     }
 
     /**
-     * Decisão direta (sem navegador), usada pelo popup overlay.
-     * Só o DENY funciona por aqui: o Approve precisa do redirect no
-     * navegador do cliente para entregar o código. Retorna true se
-     * resolveu o pedido.
+     * Aprovação pelo próprio aparelho: emite o code e TENTA ENTREGÁ-LO
+     * ao cliente com um GET no redirect_uri (OkHttp). Funciona quando o
+     * cliente alcança o loopback daqui (Termux/chroot no mesmo aparelho);
+     * noutra máquina o callback não é alcançável — o pedido é REINSERIDO
+     * (o usuário aprova na janela do navegador que o cliente abriu).
+     */
+    fun approveAndDeliver(id: String): ApproveOutcome {
+        val pending = synchronized(pendings) {
+            pendings.remove(id)?.takeIf { it.expiresAt > System.currentTimeMillis() }
+        } ?: return ApproveOutcome.EXPIRED
+        val code = mintCode(pending)
+        val sep = if ("?" in pending.redirectUri) "&" else "?"
+        val url = "${pending.redirectUri}${sep}code=$code&state=${urlEncode(pending.state)}"
+        val reached = tryDeliver(url)
+        if (!reached) {
+            // Reinsere: a página do navegador (com ?id=) ainda resolve.
+            synchronized(pendings) { pendings[pending.id] = pending }
+            McpServerManager.log("OAuth approved locally, callback unreachable (${pending.clientName})")
+            return ApproveOutcome.UNREACHABLE
+        }
+        markApproved(pending.clientId)
+        McpPairing.dismiss(pending.id)
+        McpServerManager.log("OAuth approved and delivered from the app (${pending.clientName})")
+        return ApproveOutcome.DELIVERED
+    }
+
+    /** GET no redirect_uri; qualquer resposta HTTP conta como entrega. */
+    private fun tryDeliver(url: String): Boolean {
+        return try {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(4, TimeUnit.SECONDS)
+                .readTimeout(4, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .build()
+            val req = Request.Builder().url(url).get().build()
+            client.newCall(req).execute().use { resp ->
+                McpServerManager.log("OAuth callback delivery: HTTP ${resp.code}")
+                true
+            }
+        } catch (e: Exception) {
+            McpServerManager.log("OAuth callback delivery failed: ${e.message}")
+            false
+        }
+    }
+
+    /** Resultado de uma aprovação local. */
+    enum class ApproveOutcome { DELIVERED, UNREACHABLE, EXPIRED }
+
+    /**
+     * Decisão direta (sem navegador), usada pelos popups.
+     * Só o DENY funciona por aqui: o Approve passa por approveAndDeliver.
      */
     fun decideDirect(id: String, allow: Boolean): Boolean {
         if (allow) return false
         val pending = synchronized(pendings) { pendings.remove(id) } ?: return false
-        cancelPairingFor(pending.clientId)
-        McpOverlay.hide(id)
+        McpPairing.dismiss(id)
         McpServerManager.log("OAuth pairing denied via popup (${pending.clientName})")
         return true
     }
@@ -266,8 +306,7 @@ object McpOAuth {
         if (params["deny"] == "1") {
             val pending = synchronized(pendings) { pendings.remove(id) }
             if (pending != null) {
-                cancelPairingFor(pending.clientId)
-                McpOverlay.hide(id)
+                McpPairing.dismiss(id)
                 McpServerManager.log("OAuth pairing denied (${pending.clientName})")
             }
             return html(Status.OK, errorHtml("Access denied. You can close this page."))
@@ -288,8 +327,7 @@ object McpOAuth {
         val pending = synchronized(pendings) { pendings.remove(id) }
             ?.takeIf { it.expiresAt > System.currentTimeMillis() }
             ?: return html(Status.BAD_REQUEST, errorHtml("Request expired, start over in your MCP client"))
-        cancelPairingFor(pending.clientId)
-        McpOverlay.hide(id)
+        McpPairing.dismiss(id)
         if (form["allow"] != "true") {
             McpServerManager.log("OAuth pairing denied (${pending.clientName})")
             return redirect(pending.redirectUri, "error=access_denied&state=${urlEncode(pending.state)}")
@@ -324,25 +362,6 @@ object McpOAuth {
         synchronized(pendings) { pendings[id] }
             ?.takeIf { it.expiresAt > System.currentTimeMillis() }
             ?.let { PendingInfo(it.id, it.code2, it.clientName) }
-
-    /**
-     * Aprovação direta pelo app (dialog nativo).
-     * Retorna a URL de redirect com o code — quem chama deve CARREGÁ-LA
-     * (WebView/navegador) para entregar o código ao cliente. Só funciona
-     * se o redirect for alcançável deste aparelho (ex.: cliente no Termux).
-     */
-    fun approveDirect(id: String): String? {
-        val pending = synchronized(pendings) { pendings.remove(id) }
-            ?.takeIf { it.expiresAt > System.currentTimeMillis() }
-            ?: return null
-        cancelPairingFor(pending.clientId)
-        McpOverlay.hide(id)
-        markApproved(pending.clientId)
-        val code = mintCode(pending)
-        McpServerManager.log("OAuth approved in app (${pending.clientName})")
-        val sep = if ("?" in pending.redirectUri) "&" else "?"
-        return "${pending.redirectUri}${sep}code=$code&state=${urlEncode(pending.state)}"
-    }
 
     // ------------------------------------------------------------------
     // Token (authorization_code com PKCE + refresh_token)
@@ -471,13 +490,13 @@ object McpOAuth {
     }
 
     /** Resumo dos pedidos pendentes (para exibir o código dentro do app). */
-    data class PairingSummary(val code2: Int, val clientName: String)
+    data class PairingSummary(val id: String, val code2: Int, val clientName: String)
 
     fun pendingSummaries(): List<PairingSummary> {
         val now = System.currentTimeMillis()
         return synchronized(pendings) {
             pendings.values.filter { it.expiresAt > now }
-                .map { PairingSummary(it.code2, it.clientName) }
+                .map { PairingSummary(it.id, it.code2, it.clientName) }
         }
     }
 
@@ -499,80 +518,6 @@ object McpOAuth {
         saveMap(K_TOKENS, tokens)
         McpServerManager.log("OAuth client revoked: $clientId")
         return true
-    }
-
-    // ------------------------------------------------------------------
-    // Notificação de pairing (código de 2 dígitos)
-    // ------------------------------------------------------------------
-
-    private fun notifyPairing(
-        server: McpServer, id: String, clientId: String, code2: Int, clientName: String
-    ) {
-        val ctx = appContext ?: return
-        try {
-            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                // Remove o canal antigo (sem vibração) de installs anteriores.
-                try {
-                    nm.deleteNotificationChannel("mcp_pairing")
-                } catch (e: Exception) {
-                    // ignore
-                }
-                if (nm.getNotificationChannel(PAIR_CHANNEL) == null) {
-                    nm.createNotificationChannel(
-                        NotificationChannel(
-                            PAIR_CHANNEL,
-                            ctx.getString(R.string.mcp_pair_channel),
-                            NotificationManager.IMPORTANCE_HIGH
-                        ).apply {
-                            enableVibration(true)
-                            vibrationPattern = longArrayOf(0, 250, 250, 250)
-                        }
-                    )
-                }
-            }
-            val pageUrl = "http://127.0.0.1:${server.listenPort}/oauth/decision?id=$id"
-            val openIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(pageUrl)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            val denyIntent = Intent(
-                Intent.ACTION_VIEW,
-                android.net.Uri.parse("$pageUrl&deny=1")
-            ).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            val flags = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-                PendingIntent.FLAG_IMMUTABLE else 0) or PendingIntent.FLAG_UPDATE_CURRENT
-            val openPi = PendingIntent.getActivity(ctx, id.hashCode(), openIntent, flags)
-            val denyPi = PendingIntent.getActivity(ctx, -id.hashCode(), denyIntent, flags)
-            val notif = NotificationCompat.Builder(ctx, PAIR_CHANNEL)
-                .setSmallIcon(R.drawable.ic_mcp_status)
-                .setContentTitle(ctx.getString(R.string.mcp_pair_title))
-                .setContentText(ctx.getString(R.string.mcp_pair_text, code2, clientName))
-                .setStyle(NotificationCompat.BigTextStyle().bigText(
-                    ctx.getString(R.string.mcp_pair_big, code2, clientName)
-                ))
-                .setContentIntent(openPi)
-                .addAction(0, ctx.getString(R.string.mcp_pair_open), openPi)
-                .addAction(0, ctx.getString(R.string.mcp_deny), denyPi)
-                .setAutoCancel(true)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .build()
-            // Tag estável por cliente: re-notificar ATUALIZA em vez de duplicar.
-            nm.notify("pair:$clientId", 42, notif)
-        } catch (e: Exception) {
-            McpServerManager.log("pairing notify failed: ${e.message}")
-        }
-    }
-
-    private fun cancelPairingFor(clientId: String) {
-        try {
-            (appContext?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
-                ?.cancel("pair:$clientId", 42)
-        } catch (e: Exception) {
-            // ignore
-        }
     }
 
     // ------------------------------------------------------------------
@@ -713,11 +658,11 @@ button{font-size:18px;border:0;border-radius:12px;padding:14px 0;width:100%;marg
 small{color:#999}</style></head><body><div class="card">
 <h2>Eruda MCP pairing</h2>
 <p><b>$esc</b> wants to control this device.</p>
-<p>Check the code on your phone (notification or popup):</p>
+<p>Check the code on your phone (popup or notification):</p>
 <div class="code">$code2</div>
-<small>Only approve if the codes match. Approve in the browser
-your MCP client opened — approving on the phone breaks
-computer flows.</small>
+<small>Only approve if the codes match. Client running on this phone?
+The app's popup completes the setup by itself. Client on a computer?
+Approve with the buttons below, in this browser window.</small>
 <form method="post" action="/oauth/decision">
 <input type="hidden" name="id" value="$id">
 <input type="hidden" name="allow" value="true">

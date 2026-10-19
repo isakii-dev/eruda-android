@@ -13,4 +13,13 @@
     <style name="AppDialog" parent="Theme.AppCompat.DayNight.Dialog.Alert">
         <item name="android:windowBackground">@drawable/dialog_bg</item>
     </style>
+
+    <!-- Activity transparente usada pelo dialog de aprovação do pairing:
+         flutua sobre o app (ou sobre a tela atual) sem trocar de contexto. -->
+    <style name="AppTheme.DialogOverlay" parent="AppTheme">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

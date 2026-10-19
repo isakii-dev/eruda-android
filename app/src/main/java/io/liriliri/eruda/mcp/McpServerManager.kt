@@ -28,9 +28,10 @@ object McpServerManager {
 
     private var server: McpServer? = null
     private var bridgeRef: WeakReference<McpBridge>? = null
-    private var serverBridge: McpBridge? = null
+    private var appCtx: Context? = null
     private var runningPort = -1
     private var runningToken: String? = null
+    private var lastBridgeKind: String? = null
     private var logFile: File? = null
     private val logs = ArrayDeque<String>()
 
@@ -38,9 +39,36 @@ object McpServerManager {
     var lastError: String? = null
         private set
 
-    /** Registra a ponte (MainActivity) para o servidor poder controlar o WebView. */
+    /** Registra a ponte da UI (MainActivity) para o servidor controlar o WebView dela. */
     fun registerBridge(bridge: McpBridge) {
         bridgeRef = WeakReference(bridge)
+        if (lastBridgeKind != "ui") {
+            lastBridgeKind = "ui"
+            log("Tools now target the app WebView (UI open)")
+        }
+        // A UI real assume: o WebView headless (se existia) não é mais necessário.
+        HeadlessBrowser.destroy()
+    }
+
+    fun unregisterBridge(bridge: McpBridge) {
+        if (bridgeRef?.get() === bridge) bridgeRef = null
+    }
+
+    /**
+     * Ponte ATIVA agora: a da UI quando viva; senão o WebView headless
+     * (criado lazy no serviço, se houver permissão de overlay). Resolvida
+     * a cada chamada, então reabrir/recrear a activity não derruba o
+     * servidor nem quebra conexões em andamento.
+     */
+    fun activeBridge(): McpBridge? {
+        bridgeRef?.get()?.let { return it }
+        val ctx = appCtx ?: return null
+        val headless = HeadlessBrowser.ensureOnMain(ctx)
+        if (headless != null && lastBridgeKind != "headless") {
+            lastBridgeKind = "headless"
+            log("Tools now target the headless WebView (app UI closed)")
+        }
+        return headless
     }
 
     fun isEnabled(context: Context): Boolean =
@@ -98,27 +126,23 @@ object McpServerManager {
     fun isRunning(): Boolean = server != null
 
     fun start(context: Context): Boolean {
+        appCtx = context.applicationContext
         val port = port(context)
         val token = token(context)
-        val bridge = bridgeRef?.get()
         if (server != null) {
-            if (runningPort == port && runningToken == token && serverBridge === bridge) {
+            if (runningPort == port && runningToken == token) {
                 return true
             }
-            log("Config changed (port/token/bridge), restarting server")
+            log("Config changed (port/token), restarting server")
             stop()
         }
         if (!isEnabled(context)) return false
-        if (bridge == null) {
-            log("Warning: starting without browser bridge (open the app once)")
-        }
         McpOAuth.init(context.applicationContext)
         logFile = File(context.cacheDir, LOG_FILE)
-        val candidate = McpServer(port, token, bridge)
+        val candidate = McpServer(port, token) { activeBridge() }
         return try {
             candidate.start(5000, true)
             server = candidate
-            serverBridge = bridge
             runningPort = port
             runningToken = token
             lastError = null
@@ -132,17 +156,13 @@ object McpServerManager {
     }
 
     /**
-     * Chamado pelo MainActivity.onResume: registra a ponte atual e
-     * reinicia o servidor se a instância mudou (ex.: activity recriada).
+     * Chamado pelo MainActivity.onResume: registra a ponte da UI. O
+     * servidor resolve a ponte a cada chamada, então trocar de instância
+     * (activity recriada) não exige reiniciar nem derruba conexões.
      */
     fun ensureBridge(context: Context, bridge: McpBridge) {
         registerBridge(bridge)
         if (!isEnabled(context)) return
-        if (server != null && serverBridge === bridge) return
-        if (server != null) {
-            log("Browser instance changed, restarting server")
-            stop()
-        }
         start(context)
     }
 
@@ -154,9 +174,9 @@ object McpServerManager {
             // ignore
         }
         server = null
-        serverBridge = null
         runningPort = -1
         runningToken = null
+        HeadlessBrowser.destroy()
         log("Server stopped")
     }
 

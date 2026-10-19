@@ -1,9 +1,11 @@
 package io.liriliri.eruda.mcp
 
-/** Ponte entre o servidor MCP e o WebView da MainActivity. */
+/** Ponte entre o servidor MCP e um WebView (o da MainActivity ou o headless). */
 interface McpBridge {
     fun screenshotBase64(): String
     fun tap(x: Float, y: Float)
+    fun click(x: Float, y: Float)
+    fun doubleClick(x: Float, y: Float)
     fun press(x: Float, y: Float, durationMs: Long)
     fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long)
     fun scroll(direction: String, amount: Float)
@@ -14,11 +16,16 @@ interface McpBridge {
     )
     fun typeText(text: String): String
     fun clickSelector(selector: String): String
+    fun hover(selector: String): String
+    fun fill(selector: String, text: String): String
+    fun pressKey(key: String, times: Int): String
+    fun waitFor(selector: String, timeoutMs: Long, visible: Boolean): String
     fun domQuery(selector: String, limit: Int): String
     fun evalJs(script: String): String
     fun navigate(url: String)
     fun back()
     fun forward()
+    fun reload()
     fun pageInfo(): String
     fun consoleLogs(limit: Int): String
     fun networkRequests(limit: Int): String

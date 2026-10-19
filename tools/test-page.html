@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Eruda MCP test page</title>
+<style>
+  body{font-family:sans-serif;background:#111;color:#eee;padding:16px}
+  input,button{font-size:18px;padding:10px;margin:6px 0;width:100%;box-sizing:border-box}
+  .box{background:#1e1e1e;border:1px solid #333;border-radius:10px;padding:12px;margin:10px 0}
+  #menu{display:none;background:#2e7d32;padding:8px;border-radius:8px}
+  #menu.open{display:block}
+  #hidden{display:none}
+  #log{color:#7CFC9A;font-family:monospace;font-size:13px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h2>MCP test page</h2>
+
+<div class="box">
+  <label>Name (React-style input)</label>
+  <input id="name" placeholder="type here">
+  <div id="echo">echo: —</div>
+</div>
+
+<div class="box">
+  <label>Search (key events)</label>
+  <input id="search" placeholder="press keys here">
+  <div id="keylog">keys: —</div>
+</div>
+
+<div class="box">
+  <button id="btn" onclick="bump()">Click me</button>
+  <div id="count">clicks: 0</div>
+  <button id="dbl" ondblclick="dbl()">Double-click me</button>
+  <div id="dblcount">double-clicks: 0</div>
+</div>
+
+<div class="box" id="hoverzone">
+  <div id="hoverme" style="background:#333;padding:14px;border-radius:8px">Hover me</div>
+  <div id="menu">MENU OPENED</div>
+</div>
+
+<div class="box">
+  <button id="reveal" onclick="setTimeout(function(){document.getElementById('hidden').style.display='block'},1200)">Reveal after 1.2s</button>
+  <div id="hidden">I am now visible</div>
+</div>
+
+<div class="box"><div id="log"></div></div>
+
+<script>
+  var clicks = 0, dbls = 0;
+  function log(m){ document.getElementById('log').textContent += m + "\n"; }
+  function bump(){ clicks++; document.getElementById('count').textContent = 'clicks: ' + clicks; log('click ' + clicks); }
+  function dbl(){ dbls++; document.getElementById('dblcount').textContent = 'double-clicks: ' + dbls; log('dblclick ' + dbls); }
+  document.getElementById('name').addEventListener('input', function(e){
+    document.getElementById('echo').textContent = 'echo: ' + e.target.value;
+  });
+  document.getElementById('search').addEventListener('keydown', function(e){
+    document.getElementById('keylog').textContent = 'keys: ' + e.key + ' (keydown)';
+  });
+  var hm = document.getElementById('hoverme');
+  ['mouseover','mouseenter'].forEach(function(t){
+    hm.addEventListener(t, function(){ document.getElementById('menu').classList.add('open'); log('hover'); });
+  });
+  log('ready');
+</script>
+</body>
+</html>

@@ -46,12 +46,30 @@ class McpService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            McpServerManager.log("Stop requested from notification")
-            McpServerManager.setEnabled(this, false)
-            McpServerManager.stop()
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                McpServerManager.log("Stop requested from notification")
+                McpServerManager.setEnabled(this, false)
+                McpServerManager.stop()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_PAIR_APPROVE -> {
+                val id = intent.getStringExtra(EXTRA_PAIR_ID).orEmpty()
+                if (id.isNotEmpty()) {
+                    McpServerManager.log("Pairing approve requested from notification")
+                    Thread { McpPairing.completeApprove(applicationContext, id) }.start()
+                }
+                return START_STICKY
+            }
+            ACTION_PAIR_DENY -> {
+                val id = intent.getStringExtra(EXTRA_PAIR_ID).orEmpty()
+                if (id.isNotEmpty()) {
+                    McpServerManager.log("Pairing deny requested from notification")
+                    McpPairing.deny(applicationContext, id)
+                }
+                return START_STICKY
+            }
         }
         if (!McpServerManager.isEnabled(this)) {
             stopSelf()
@@ -137,7 +155,15 @@ class McpService : Service() {
     companion object {
         const val ACTION_START = "io.liriliri.eruda.mcp.START"
         const val ACTION_STOP = "io.liriliri.eruda.mcp.STOP"
+        const val ACTION_PAIR_APPROVE = "io.liriliri.eruda.mcp.PAIR_APPROVE"
+        const val ACTION_PAIR_DENY = "io.liriliri.eruda.mcp.PAIR_DENY"
+        private const val EXTRA_PAIR_ID = "pairing_id"
         private const val CHANNEL_ID = "mcp_status"
         private const val NOTIF_ID = 41
+
+        fun pairActionIntent(context: Context, action: String, id: String): Intent =
+            Intent(context, McpService::class.java)
+                .setAction(action)
+                .putExtra(EXTRA_PAIR_ID, id)
     }
 }
